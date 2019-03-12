@@ -5,10 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"io"
 	"io/ioutil"
 	"log"
 	"math"
+	"net/http"
 	"os"
+	"strings"
 
 	detector "github.com/donniet/detector"
 )
@@ -20,11 +23,13 @@ var (
 	classifierWeights             = ""
 	deviceName                    = ""
 	peopleFile                    = ""
-	image_width                   = 672
-	image_height                  = 384
-	num_channels                  = 3
+	imageWidth                    = 672
+	imageHeight                   = 384
+	numChannels                   = 3
 	detectionPadding      float32 = 1.275
 	distance                      = 2.5
+	videoFile                     = ""
+	notificationURL               = ""
 )
 
 type People []Person
@@ -64,7 +69,25 @@ func init() {
 	flag.StringVar(&peopleFile, "peopleFile", peopleFile, "people file")
 	flag.StringVar(&deviceName, "device", deviceName, "device name")
 	flag.Float64Var(&distance, "distance", distance, "distance before identifying match")
+	flag.StringVar(&videoFile, "video", videoFile, "video file (leave blank for stdin)")
+	flag.IntVar(&imageWidth, "width", imageWidth, "image width")
+	flag.IntVar(&imageHeight, "height", imageHeight, "image height")
+	flag.StringVar(&notificationURL, "notificationURL", notificationURL, "url to notify of found faces")
 	flag.Parse()
+}
+
+func notify(name string) {
+	if notificationURL == "" {
+		return
+	}
+
+	client := &http.Client{}
+
+	if res, err := client.Post(notificationURL, "application/json", strings.NewReader(name)); err != nil {
+		log.Print(err)
+	} else if res.StatusCode >= 300 || res.StatusCode < 200 {
+		log.Printf("unknown status code: %d %s", res.StatusCode, res.Status)
+	}
 }
 
 func main() {
@@ -84,9 +107,17 @@ func main() {
 	classer := detector.NewClassifier(classifierDescription, classifierWeights, deviceName)
 	defer classer.Close()
 
+	var r io.Reader = os.Stdin
+	if videoFile != "" {
+		var err error
+		if r, err = os.OpenFile(videoFile, os.O_RDONLY, 0600); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	reader := detector.RGB24Reader{
-		Reader: os.Stdin,
-		Rect:   image.Rect(0, 0, image_width, image_height),
+		Reader: r,
+		Rect:   image.Rect(0, 0, imageWidth, imageHeight),
 	}
 
 	for {
@@ -120,10 +151,10 @@ func main() {
 			for _, p := range people {
 				if d := Dist(classification.Embedding, p.Embedding); d < float32(distance) {
 					log.Printf("match: %s", p.Name)
+
+					go notify(p.Name)
 				}
 			}
-
 		}
 	}
-
 }
