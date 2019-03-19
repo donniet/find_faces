@@ -35,10 +35,10 @@ var (
 	videoFile                     = ""
 	motionFile                    = ""
 	notificationURL               = ""
-	mbx                   int     = 120
-	mby                   int     = 68
-	magnitude             int     = 60
-	totalMotion           int     = 10
+	mbx                   int     = 42 // 120
+	mby                   int     = 24 // 68
+	magnitude             int     = 20 // 60
+	totalMotion           int     = 4  // 10
 )
 
 type People []Person
