@@ -30,11 +30,12 @@ var (
 	imageWidth                    = 672
 	imageHeight                   = 384
 	numChannels                   = 3
-	detectionPadding      float32 = 1.275
+	detectionPadding      float64 = 1.5
 	distance                      = 2.5
 	videoFile                     = ""
 	motionFile                    = ""
 	notificationURL               = ""
+	motionNotificationURL         = ""
 	mbx                   int     = 42 // 120
 	mby                   int     = 24 // 68
 	magnitude             int     = 20 // 60
@@ -63,9 +64,9 @@ func Dist(e []float32, r []float32) float32 {
 	return float32(math.Sqrt(float64(acc)))
 }
 
-func scaleRectangle(r image.Rectangle, factor float32) image.Rectangle {
-	dx := int(float32(r.Dx()) * (factor - 1.0) / 2)
-	dy := int(float32(r.Dy()) * (factor - 1.0) / 2)
+func scaleRectangle(r image.Rectangle, factor float64) image.Rectangle {
+	dx := int(float64(r.Dx()) * (factor - 1.0) / 2)
+	dy := int(float64(r.Dy()) * (factor - 1.0) / 2)
 
 	return image.Rect(r.Min.X-dx, r.Min.Y-dy, r.Max.X+dx, r.Max.Y+dy)
 }
@@ -83,11 +84,12 @@ func init() {
 	flag.IntVar(&imageWidth, "width", imageWidth, "image width")
 	flag.IntVar(&imageHeight, "height", imageHeight, "image height")
 	flag.StringVar(&notificationURL, "notificationURL", notificationURL, "url to notify of found faces")
+	flag.StringVar(&motionNotificationURL, "motionNotificationURL", motionNotificationURL, "url to notify of motion")
 	flag.IntVar(&mbx, "mbx", mbx, "motion x vector size")
 	flag.IntVar(&mby, "mby", mby, "motion y vector size")
 	flag.IntVar(&magnitude, "magnitude", magnitude, "motion magnitude")
 	flag.IntVar(&totalMotion, "totalMotion", totalMotion, "total high magnitude motion counts to trigger motion detection")
-	flag.Parse()
+	flag.Float64Var(&detectionPadding, "padding", detectionPadding, "padding of face detection rectangles")
 }
 
 func notify(name string, face image.Image) {
@@ -137,18 +139,16 @@ type motionVector struct {
 	Sad int16
 }
 
-func (m MotionProcessor) notify(magnitude float64) {
+func (m MotionProcessor) Notify(magnitude float64) {
 	client := &http.Client{
 		Timeout: 1000 * time.Millisecond,
 	}
 
-	msg := map[string]interface{}{
-		"magnitude": magnitude,
-	}
+	msg := "on"
 
 	if bb, err := json.Marshal(msg); err != nil {
 		log.Fatal(err)
-	} else if req, err := http.NewRequest("PUT", m.NotificationURL, bytes.NewReader(bb)); err != nil {
+	} else if req, err := http.NewRequest("POST", m.NotificationURL, bytes.NewReader(bb)); err != nil {
 		log.Fatal(err)
 	} else if res, err := client.Do(req); err != nil {
 		log.Print(err)
@@ -185,7 +185,7 @@ func (m MotionProcessor) ProcessMotion(r io.Reader) {
 		// log.Printf("total motion vectors above magnitude: %d", c)
 
 		if c > m.Total {
-			go m.notify(float64(c))
+			go m.Notify(float64(c))
 		}
 
 	}
@@ -193,12 +193,15 @@ func (m MotionProcessor) ProcessMotion(r io.Reader) {
 }
 
 func main() {
+	flag.Parse()
+
 	people := People{}
 	mot := MotionProcessor{
-		MBX:       mbx,
-		MBY:       mby,
-		Magnitude: magnitude,
-		Total:     totalMotion,
+		MBX:             mbx,
+		MBY:             mby,
+		Magnitude:       magnitude,
+		Total:           totalMotion,
+		NotificationURL: motionNotificationURL,
 	}
 
 	if f, err := os.Open(peopleFile); err != nil {
@@ -239,6 +242,10 @@ func main() {
 		Rect:   image.Rect(0, 0, imageWidth, imageHeight),
 	}
 
+	j := 0
+
+	os.Mkdir("faces", 0770)
+
 	for {
 		var rgb *detector.RGB24
 		var err error
@@ -267,6 +274,26 @@ func main() {
 
 			classification := classer.InferRGB24(face.(*detector.RGB24))
 
+			go mot.Notify(0)
+
+			if f, err := os.OpenFile(fmt.Sprintf("faces/face%05d.jpg", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
+				log.Fatal(err)
+			} else if err := jpeg.Encode(f, face, nil); err != nil {
+				log.Fatal(err)
+			} else {
+				f.Close()
+			}
+
+			if f, err := os.OpenFile(fmt.Sprintf("faces/face%005d.json", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
+				log.Fatal(err)
+			} else if b, err := json.Marshal(classification); err != nil {
+				log.Fatal(err)
+			} else if _, err := f.Write(b); err != nil {
+				log.Fatal(err)
+			} else {
+				f.Close()
+			}
+
 			for _, p := range people {
 				if d := Dist(classification.Embedding, p.Embedding); d < float32(distance) {
 					log.Printf("match: %s", p.Name)
@@ -275,5 +302,7 @@ func main() {
 				}
 			}
 		}
+
+		j++
 	}
 }
