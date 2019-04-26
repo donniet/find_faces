@@ -242,9 +242,9 @@ func main() {
 		Rect:   image.Rect(0, 0, imageWidth, imageHeight),
 	}
 
-	j := 0
+	// j := 0
 
-	os.Mkdir("faces", 0770)
+	// os.Mkdir("faces", 0770)
 
 	for {
 		var rgb *detector.RGB24
@@ -257,7 +257,7 @@ func main() {
 
 		detections := det.InferRGB(rgb)
 
-		log.Printf("found: %d", len(detections))
+		// log.Printf("found: %d", len(detections))
 
 		for _, d := range detections {
 			// log.Printf("%d: confidence: %f, (%d %d) - (%d %d)", i, d.Confidence, d.Rect.Min.X, d.Rect.Min.Y, d.Rect.Max.X, d.Rect.Max.Y)
@@ -274,25 +274,25 @@ func main() {
 
 			classification := classer.InferRGB24(face.(*detector.RGB24))
 
-			go mot.Notify(0)
+			// go mot.Notify(0)
 
-			if f, err := os.OpenFile(fmt.Sprintf("faces/face%05d.jpg", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
-				log.Fatal(err)
-			} else if err := jpeg.Encode(f, face, nil); err != nil {
-				log.Fatal(err)
-			} else {
-				f.Close()
-			}
+			// if f, err := os.OpenFile(fmt.Sprintf("faces/face%05d.jpg", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
+			// 	log.Fatal(err)
+			// } else if err := jpeg.Encode(f, face, nil); err != nil {
+			// 	log.Fatal(err)
+			// } else {
+			// 	f.Close()
+			// }
 
-			if f, err := os.OpenFile(fmt.Sprintf("faces/face%005d.json", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
-				log.Fatal(err)
-			} else if b, err := json.Marshal(classification); err != nil {
-				log.Fatal(err)
-			} else if _, err := f.Write(b); err != nil {
-				log.Fatal(err)
-			} else {
-				f.Close()
-			}
+			// if f, err := os.OpenFile(fmt.Sprintf("faces/face%005d.json", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
+			// 	log.Fatal(err)
+			// } else if b, err := json.Marshal(classification); err != nil {
+			// 	log.Fatal(err)
+			// } else if _, err := f.Write(b); err != nil {
+			// 	log.Fatal(err)
+			// } else {
+			// 	f.Close()
+			// }
 
 			for _, p := range people {
 				if d := Dist(classification.Embedding, p.Embedding); d < float32(distance) {
@@ -303,6 +303,6 @@ func main() {
 			}
 		}
 
-		j++
+		// j++
 	}
 }
