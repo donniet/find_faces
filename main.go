@@ -218,6 +218,21 @@ func main() {
 	classer := detector.NewClassifier(classifierDescription, classifierWeights, deviceName)
 	defer classer.Close()
 
+	go func() {
+		log.Printf("opening motion file: '%s'", motionFile)
+		var m *os.File
+		if motionFile != "" {
+			var err error
+			if m, err = os.OpenFile(motionFile, os.O_RDONLY, 0600); err != nil {
+				log.Fatal(err)
+			} else {
+				defer m.Close()
+				mot.ProcessMotion(m)
+			}
+		}
+	}()
+
+
 	r := os.Stdin
 	if videoFile != "" {
 		var err error
@@ -225,26 +240,14 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-
-	var m *os.File
-	if motionFile != "" {
-		var err error
-		if m, err = os.OpenFile(motionFile, os.O_RDONLY, 0600); err != nil {
-			log.Fatal(err)
-		} else {
-			defer m.Close()
-			go mot.ProcessMotion(m)
-		}
-	}
-
 	reader := detector.RGB24Reader{
 		Reader: r,
 		Rect:   image.Rect(0, 0, imageWidth, imageHeight),
 	}
 
-	// j := 0
+	j := 0
 
-	// os.Mkdir("faces", 0770)
+	os.Mkdir("faces", 0770)
 
 	for {
 		var rgb *detector.RGB24
@@ -257,10 +260,10 @@ func main() {
 
 		detections := det.InferRGB(rgb)
 
-		// log.Printf("found: %d", len(detections))
+		log.Printf("found: %d", len(detections))
 
-		for _, d := range detections {
-			// log.Printf("%d: confidence: %f, (%d %d) - (%d %d)", i, d.Confidence, d.Rect.Min.X, d.Rect.Min.Y, d.Rect.Max.X, d.Rect.Max.Y)
+		for i, d := range detections {
+			log.Printf("%d: confidence: %f, (%d %d) - (%d %d)", i, d.Confidence, d.Rect.Min.X, d.Rect.Min.Y, d.Rect.Max.X, d.Rect.Max.Y)
 
 			// padd the rectangle to get more of the face
 			r := scaleRectangle(d.Rect, detectionPadding)
@@ -276,23 +279,23 @@ func main() {
 
 			// go mot.Notify(0)
 
-			// if f, err := os.OpenFile(fmt.Sprintf("faces/face%05d.jpg", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
-			// 	log.Fatal(err)
-			// } else if err := jpeg.Encode(f, face, nil); err != nil {
-			// 	log.Fatal(err)
-			// } else {
-			// 	f.Close()
-			// }
+			if f, err := os.OpenFile(fmt.Sprintf("faces/face%05d.jpg", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
+				log.Fatal(err)
+			} else if err := jpeg.Encode(f, face, nil); err != nil {
+				log.Fatal(err)
+			} else {
+				f.Close()
+			}
 
-			// if f, err := os.OpenFile(fmt.Sprintf("faces/face%005d.json", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
-			// 	log.Fatal(err)
-			// } else if b, err := json.Marshal(classification); err != nil {
-			// 	log.Fatal(err)
-			// } else if _, err := f.Write(b); err != nil {
-			// 	log.Fatal(err)
-			// } else {
-			// 	f.Close()
-			// }
+			if f, err := os.OpenFile(fmt.Sprintf("faces/face%005d.json", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
+				log.Fatal(err)
+			} else if b, err := json.Marshal(classification); err != nil {
+				log.Fatal(err)
+			} else if _, err := f.Write(b); err != nil {
+				log.Fatal(err)
+			} else {
+				f.Close()
+			}
 
 			for _, p := range people {
 				if d := Dist(classification.Embedding, p.Embedding); d < float32(distance) {
@@ -303,6 +306,7 @@ func main() {
 			}
 		}
 
-		// j++
+		j++
+		j = j % 10000
 	}
 }
