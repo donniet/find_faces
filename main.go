@@ -40,6 +40,8 @@ var (
 	mby                   int     = 24 // 68
 	magnitude             int     = 20 // 60
 	totalMotion           int     = 4  // 10
+	motionThrottle                = 1 * time.Minute
+	normalizeEmbedding            = false
 )
 
 type People []Person
@@ -59,6 +61,16 @@ func Dist(e []float32, r []float32) float32 {
 	for i := 0; i < len(e); i++ {
 		d := e[i] - r[i]
 		acc += d * d
+	}
+
+	return float32(math.Sqrt(float64(acc)))
+}
+
+func Norm(e []float32) float32 {
+	acc := float32(0.)
+
+	for i := 0; i < len(e); i++ {
+		acc += e[i] * e[i]
 	}
 
 	return float32(math.Sqrt(float64(acc)))
@@ -90,6 +102,8 @@ func init() {
 	flag.IntVar(&magnitude, "magnitude", magnitude, "motion magnitude")
 	flag.IntVar(&totalMotion, "totalMotion", totalMotion, "total high magnitude motion counts to trigger motion detection")
 	flag.Float64Var(&detectionPadding, "padding", detectionPadding, "padding of face detection rectangles")
+	flag.DurationVar(&motionThrottle, "motionThrottle", motionThrottle, "duration to throttle motion by")
+	flag.BoolVar(&normalizeEmbedding, "normalizeEmbedding", normalizeEmbedding, "normalize embedding prior to distance calculation")
 }
 
 func notify(name string, face image.Image) {
@@ -201,6 +215,7 @@ func main() {
 		MBY:             mby,
 		Magnitude:       magnitude,
 		Total:           totalMotion,
+		Throttle:        motionThrottle,
 		NotificationURL: motionNotificationURL,
 	}
 
@@ -231,7 +246,6 @@ func main() {
 			}
 		}
 	}()
-
 
 	r := os.Stdin
 	if videoFile != "" {
@@ -278,6 +292,13 @@ func main() {
 			classification := classer.InferRGB24(face.(*detector.RGB24))
 
 			// go mot.Notify(0)
+
+			if normalizeEmbedding {
+				n := Norm(classification.Embedding)
+				for i, x := range classification.Embedding {
+					classification.Embedding[i] = x / n
+				}
+			}
 
 			if f, err := os.OpenFile(fmt.Sprintf("faces/face%05d.jpg", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
 				log.Fatal(err)
