@@ -1,0 +1,34 @@
+[Unit]
+Description=Face Finder
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=pi
+Group=pi
+ExecStart=/home/pi/go/bin/find_faces                                                                        \
+    --classifierDescription /home/pi/src/detect_faces/resnet50_128_caffe/FP16/resnet50_128.xml              \
+    --classifierWeights /home/pi/src/detect_faces/resnet50_128_caffe/FP16/resnet50_128.bin                  \
+    --detectorDescription /home/pi/src/detect_faces/face-detection-model/FP16/face-detection-adas-0001.xml  \
+    --detectorWeights /home/pi/src/detect_faces/face-detection-model/FP16/face-detection-adas-0001.bin      \
+    --device MYRIAD                                                                                         \
+    --distance 0.1                                                                                          \
+    --height 1088                                                                                           \
+    --width 1920                                                                                            \
+    --notificationURL http://mirror.local:8080/api/faces/detections                                         \
+    --motionNotificationURL http://mirror.local:9080/                                                       \
+    --mbx 120                                                                                               \
+    --mby 68                                                                                                \
+    --magnitude 60                                                                                          \
+    --totalMotion 10                                                                                        \
+    --motion /home/pi/motion.bin                                                                            \
+    --video /home/pi/video.rgb24                                                                            \
+    --normalizeEmbedding                                                                                    \
+    --motionThrottle 10s
+WorkingDirectory=/home/pi/go/src/github.com/donniet/find_faces/
+Restart=always
+RestartSec=60
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
