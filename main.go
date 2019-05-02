@@ -42,6 +42,7 @@ var (
 	totalMotion           int     = 4  // 10
 	motionThrottle                = 1 * time.Minute
 	normalizeEmbedding            = false
+	outputFaces                   = false
 )
 
 type People []Person
@@ -104,6 +105,7 @@ func init() {
 	flag.Float64Var(&detectionPadding, "padding", detectionPadding, "padding of face detection rectangles")
 	flag.DurationVar(&motionThrottle, "motionThrottle", motionThrottle, "duration to throttle motion by")
 	flag.BoolVar(&normalizeEmbedding, "normalizeEmbedding", normalizeEmbedding, "normalize embedding prior to distance calculation")
+	flag.BoolVar(&outputFaces, "outputFaces", outputFaces, "output faces to directory")
 }
 
 func notify(name string, face image.Image) {
@@ -260,7 +262,9 @@ func main() {
 
 	j := 0
 
-	os.Mkdir("faces", 0770)
+	if outputFaces {
+		os.Mkdir("faces", 0770)
+	}
 
 	for {
 		var rgb *detector.RGB24
@@ -273,10 +277,10 @@ func main() {
 
 		detections := det.InferRGB(rgb)
 
-		log.Printf("found: %d", len(detections))
+		// log.Printf("found: %d", len(detections))
 
-		for i, d := range detections {
-			log.Printf("%d: confidence: %f, (%d %d) - (%d %d)", i, d.Confidence, d.Rect.Min.X, d.Rect.Min.Y, d.Rect.Max.X, d.Rect.Max.Y)
+		for _, d := range detections {
+			// log.Printf("%d: confidence: %f, (%d %d) - (%d %d)", i, d.Confidence, d.Rect.Min.X, d.Rect.Min.Y, d.Rect.Max.X, d.Rect.Max.Y)
 
 			// padd the rectangle to get more of the face
 			r := scaleRectangle(d.Rect, detectionPadding)
@@ -299,27 +303,29 @@ func main() {
 				}
 			}
 
-			if f, err := os.OpenFile(fmt.Sprintf("faces/face%05d.jpg", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
-				log.Fatal(err)
-			} else if err := jpeg.Encode(f, face, nil); err != nil {
-				log.Fatal(err)
-			} else {
-				f.Close()
-			}
+			if outputFaces {
+				if f, err := os.OpenFile(fmt.Sprintf("faces/face%05d.jpg", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
+					log.Fatal(err)
+				} else if err := jpeg.Encode(f, face, nil); err != nil {
+					log.Fatal(err)
+				} else {
+					f.Close()
+				}
 
-			if f, err := os.OpenFile(fmt.Sprintf("faces/face%005d.json", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
-				log.Fatal(err)
-			} else if b, err := json.Marshal(classification); err != nil {
-				log.Fatal(err)
-			} else if _, err := f.Write(b); err != nil {
-				log.Fatal(err)
-			} else {
-				f.Close()
+				if f, err := os.OpenFile(fmt.Sprintf("faces/face%005d.json", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
+					log.Fatal(err)
+				} else if b, err := json.Marshal(classification); err != nil {
+					log.Fatal(err)
+				} else if _, err := f.Write(b); err != nil {
+					log.Fatal(err)
+				} else {
+					f.Close()
+				}
 			}
 
 			for _, p := range people {
 				if d := Dist(classification.Embedding, p.Embedding); d < float32(distance) {
-					log.Printf("match: %s", p.Name)
+					// log.Printf("match: %s", p.Name)
 
 					go notify(p.Name, face)
 				}
