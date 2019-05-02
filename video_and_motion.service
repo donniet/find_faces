@@ -6,7 +6,7 @@ After=network-online.target
 [Service]
 User=pi
 Group=pi
-ExecStart=/usr/bin/raspivid -w 1920 -h 1080 -rf rgb -t 0 -v -r /home/pi/video.rgb24 -x /home/pi/motion.bin -n --ex off -br 75 -co 75 -awb off --stats -o /dev/null
+ExecStart=/usr/bin/raspivid -w 1920 -h 1080 -rf rgb -t 0 -v -r /home/pi/video.rgb24 -x /home/pi/motion.bin -n -ex off -br 75 -co 75 -awb off --stats -o /dev/null
 WorkingDirectory=/home/pi/
 Restart=always
 RestartSec=10
