@@ -183,10 +183,7 @@ func (m MotionProcessor) ProcessMotion(r io.Reader) {
 		if err := binary.Read(r, binary.LittleEndian, vect); err != nil {
 			log.Print(err)
 			break
-		} else if time.Now().Sub(last) < m.Throttle {
-			continue
 		}
-		last = time.Now()
 
 		c := 0
 		for _, v := range vect {
@@ -198,7 +195,9 @@ func (m MotionProcessor) ProcessMotion(r io.Reader) {
 
 		// log.Printf("total motion vectors above magnitude: %d", c)
 
-		if c > m.Total {
+		if c > m.Total && time.Now().Sub(last) > m.Throttle {
+			last = time.Now()
+
 			go m.Notify(float64(c))
 		}
 
