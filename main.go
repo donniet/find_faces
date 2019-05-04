@@ -15,6 +15,9 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"regexp"
+	"strconv"
+	"sync"
 	"time"
 
 	detector "github.com/donniet/detector"
@@ -43,6 +46,10 @@ var (
 	motionThrottle                = 1 * time.Minute
 	normalizeEmbedding            = false
 	outputFaces                   = false
+	addr                          = ":9081"
+	faceCacheSize                 = 100
+
+	facesPathRegexp = regexp.MustCompile("(/(\\d+)(/(image|mimeType|time|width|height))?)?")
 )
 
 type People []Person
@@ -84,6 +91,110 @@ func scaleRectangle(r image.Rectangle, factor float64) image.Rectangle {
 	return image.Rect(r.Min.X-dx, r.Min.Y-dy, r.Max.X+dx, r.Max.Y+dy)
 }
 
+type Face struct {
+	Image    []byte    `json:"image"`
+	MimeType string    `json:"mimeType"`
+	Time     time.Time `json:"time"`
+	Width    int       `json:"width"`
+	Height   int       `json:"height"`
+}
+
+type FacesHandler struct {
+	Faces     []Face
+	CacheSize int
+	Quality   int
+	locker    sync.Locker
+}
+
+func NewFacesHandler(maxSize int) *FacesHandler {
+	return &FacesHandler{
+		CacheSize: maxSize,
+		locker:    new(sync.Mutex),
+		Quality:   75,
+	}
+}
+
+func (h *FacesHandler) Add(face image.Image) {
+	h.locker.Lock()
+	defer h.locker.Unlock()
+
+	b := new(bytes.Buffer)
+	if err := jpeg.Encode(b, face, &jpeg.Options{Quality: h.Quality}); err != nil {
+		log.Printf("error encoding jpeg: %v", err)
+	}
+	h.Faces = append(h.Faces, Face{
+		Image:    b.Bytes(),
+		MimeType: "image/jpeg",
+		Time:     time.Now(),
+		Width:    face.Bounds().Dx(),
+		Height:   face.Bounds().Dy(),
+	})
+
+	if len(h.Faces) > h.CacheSize {
+		h.Faces = h.Faces[len(h.Faces)-h.CacheSize:]
+	}
+}
+
+func (h *FacesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := facesPathRegexp.FindStringSubmatch(r.URL.Path)
+
+	log.Printf("path: %s, %#v", r.URL.Path, path)
+
+	h.locker.Lock()
+	defer h.locker.Unlock()
+
+	var obj interface{} = h.Faces
+	mimeType := ""
+	var image []byte
+
+	if path[2] == "" {
+		obj = h.Faces
+	} else if dex, err := strconv.ParseInt(path[2], 10, 32); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	} else if dex < 0 || int(dex) >= len(h.Faces) {
+		http.Error(w, "invalid index", http.StatusNotFound)
+		return
+	} else if path[4] == "" {
+		obj = h.Faces[dex]
+	} else {
+		switch path[4] {
+		case "image":
+			image = h.Faces[dex].Image
+			mimeType = h.Faces[dex].MimeType
+		case "mimeType":
+			obj = h.Faces[dex].MimeType
+		case "time":
+			obj = h.Faces[dex].Time
+		case "width":
+			obj = h.Faces[dex].Width
+		case "height":
+			obj = h.Faces[dex].Height
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	if image != nil {
+		// return the actual image
+		w.Header().Set("Content-Type", mimeType)
+		w.Write(image)
+		return
+	} else {
+		if b, err := json.Marshal(obj); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			if _, err := w.Write(b); err != nil {
+				log.Printf("error writing to response: %v", err)
+			}
+		}
+		return
+	}
+}
+
 func init() {
 	flag.StringVar(&detectorDescription, "detectorDescription", detectorDescription, "detector description file")
 	flag.StringVar(&detectorWeights, "detectorWeights", detectorWeights, "detector weights file")
@@ -106,6 +217,7 @@ func init() {
 	flag.DurationVar(&motionThrottle, "motionThrottle", motionThrottle, "duration to throttle motion by")
 	flag.BoolVar(&normalizeEmbedding, "normalizeEmbedding", normalizeEmbedding, "normalize embedding prior to distance calculation")
 	flag.BoolVar(&outputFaces, "outputFaces", outputFaces, "output faces to directory")
+	flag.StringVar(&addr, "addr", addr, "service address")
 }
 
 func notify(name string, face image.Image) {
@@ -210,6 +322,18 @@ func (m MotionProcessor) ProcessMotion(r io.Reader) {
 func main() {
 	flag.Parse()
 
+	facesHandler := NewFacesHandler(faceCacheSize)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: facesHandler,
+	}
+	go func() {
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+	defer server.Close()
+
 	people := People{}
 	mot := MotionProcessor{
 		MBX:             mbx,
@@ -291,6 +415,7 @@ func main() {
 			}
 
 			face := rgb.SubImage(r)
+			facesHandler.Add(face)
 
 			classification := classer.InferRGB24(face.(*detector.RGB24))
 

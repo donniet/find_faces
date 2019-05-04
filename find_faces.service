@@ -6,7 +6,7 @@ After=network-online.target
 [Service]
 User=pi
 Group=pi
-ExecStart=/home/pi/go/bin/find_faces                                                                        \
+ExecStart=/home/pi/go/bin/find_faces \
     --classifierDescription /home/pi/src/detect_faces/resnet50_128_caffe/FP16/resnet50_128.xml              \
     --classifierWeights /home/pi/src/detect_faces/resnet50_128_caffe/FP16/resnet50_128.bin                  \
     --detectorDescription /home/pi/src/detect_faces/face-detection-model/FP16/face-detection-adas-0001.xml  \
@@ -24,10 +24,10 @@ ExecStart=/home/pi/go/bin/find_faces                                            
     --motion /home/pi/motion.bin                                                                            \
     --video /home/pi/video.rgb24                                                                            \
     --normalizeEmbedding                                                                                    \
-    --motionThrottle 10s
+    --motionThrottle 10s    
 WorkingDirectory=/home/pi/go/src/github.com/donniet/find_faces/
 Restart=always
-RestartSec=60
+RestartSec=10
 KillSignal=SIGINT
 
 [Install]
