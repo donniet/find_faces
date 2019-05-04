@@ -164,10 +164,10 @@ func (h *FacesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if dex < 0 || int(dex) >= len(h.Faces) {
 			http.Error(w, "invalid index", http.StatusNotFound)
 			return
-		} else if path[4] == "" {
+		} else if path[5] == "" {
 			obj = h.Faces[dex]
 		} else {
-			switch path[4] {
+			switch path[5] {
 			case "image":
 				image = h.Faces[dex].Image
 				mimeType = h.Faces[dex].MimeType
