@@ -92,11 +92,12 @@ func scaleRectangle(r image.Rectangle, factor float64) image.Rectangle {
 }
 
 type Face struct {
-	Image    []byte    `json:"image"`
-	MimeType string    `json:"mimeType"`
-	Time     time.Time `json:"time"`
-	Width    int       `json:"width"`
-	Height   int       `json:"height"`
+	Image     []byte    `json:"image"`
+	MimeType  string    `json:"mimeType"`
+	Time      time.Time `json:"time"`
+	Width     int       `json:"width"`
+	Height    int       `json:"height"`
+	Embedding []float32 `json:"embedding"`
 }
 
 type FacesHandler struct {
@@ -116,7 +117,7 @@ func NewFacesHandler(maxSize int) *FacesHandler {
 	}
 }
 
-func (h *FacesHandler) Add(face image.Image) {
+func (h *FacesHandler) Add(face image.Image, embedding []float32) {
 	h.locker.Lock()
 	defer h.locker.Unlock()
 
@@ -125,11 +126,12 @@ func (h *FacesHandler) Add(face image.Image) {
 		log.Printf("error encoding jpeg: %v", err)
 	}
 	h.Faces = append(h.Faces, Face{
-		Image:    b.Bytes(),
-		MimeType: "image/jpeg",
-		Time:     time.Now(),
-		Width:    face.Bounds().Dx(),
-		Height:   face.Bounds().Dy(),
+		Image:     b.Bytes(),
+		MimeType:  "image/jpeg",
+		Time:      time.Now(),
+		Width:     face.Bounds().Dx(),
+		Height:    face.Bounds().Dy(),
+		Embedding: embedding,
 	})
 
 	if len(h.Faces) > h.CacheSize {
@@ -179,6 +181,8 @@ func (h *FacesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				obj = h.Faces[dex].Width
 			case "height":
 				obj = h.Faces[dex].Height
+			case "embedding":
+				obj = h.Faces[dex].Embedding
 			default:
 				http.Error(w, "not found", http.StatusNotFound)
 				return
@@ -436,9 +440,9 @@ func main() {
 			}
 
 			face := rgb.SubImage(r)
-			facesHandler.Add(face)
 
 			classification := classer.InferRGB24(face.(*detector.RGB24))
+			facesHandler.Add(face, classification.Embedding)
 
 			// go mot.Notify(0)
 
