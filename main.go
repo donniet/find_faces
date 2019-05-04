@@ -49,7 +49,7 @@ var (
 	addr                          = ":9081"
 	faceCacheSize                 = 100
 
-	facesPathRegexp = regexp.MustCompile("(/(\\d+)(/(image|mimeType|time|width|height))?)?")
+	facesPathRegexp = regexp.MustCompile("(/((\\d+)|frame)(/(image|mimeType|time|width|height))?)?")
 )
 
 type People []Person
@@ -100,10 +100,12 @@ type Face struct {
 }
 
 type FacesHandler struct {
-	Faces     []Face
-	CacheSize int
-	Quality   int
-	locker    sync.Locker
+	frames       [2]image.Image
+	currentFrame int
+	Faces        []Face
+	CacheSize    int
+	Quality      int
+	locker       sync.Locker
 }
 
 func NewFacesHandler(maxSize int) *FacesHandler {
@@ -135,6 +137,14 @@ func (h *FacesHandler) Add(face image.Image) {
 	}
 }
 
+func (h *FacesHandler) Frame(frame image.Image) {
+	h.locker.Lock()
+	defer h.locker.Unlock()
+
+	h.currentFrame = (h.currentFrame + 1) % len(h.frames)
+	h.frames[h.currentFrame] = frame
+}
+
 func (h *FacesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := facesPathRegexp.FindStringSubmatch(r.URL.Path)
 
@@ -147,33 +157,43 @@ func (h *FacesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mimeType := ""
 	var image []byte
 
-	if path[2] == "" {
-		obj = h.Faces
-	} else if dex, err := strconv.ParseInt(path[2], 10, 32); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	} else if dex < 0 || int(dex) >= len(h.Faces) {
-		http.Error(w, "invalid index", http.StatusNotFound)
-		return
-	} else if path[4] == "" {
-		obj = h.Faces[dex]
-	} else {
-		switch path[4] {
-		case "image":
-			image = h.Faces[dex].Image
-			mimeType = h.Faces[dex].MimeType
-		case "mimeType":
-			obj = h.Faces[dex].MimeType
-		case "time":
-			obj = h.Faces[dex].Time
-		case "width":
-			obj = h.Faces[dex].Width
-		case "height":
-			obj = h.Faces[dex].Height
-		default:
-			http.Error(w, "not found", http.StatusNotFound)
+	if path[3] != "" {
+		if dex, err := strconv.ParseInt(path[3], 10, 32); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		} else if dex < 0 || int(dex) >= len(h.Faces) {
+			http.Error(w, "invalid index", http.StatusNotFound)
+			return
+		} else if path[4] == "" {
+			obj = h.Faces[dex]
+		} else {
+			switch path[4] {
+			case "image":
+				image = h.Faces[dex].Image
+				mimeType = h.Faces[dex].MimeType
+			case "mimeType":
+				obj = h.Faces[dex].MimeType
+			case "time":
+				obj = h.Faces[dex].Time
+			case "width":
+				obj = h.Faces[dex].Width
+			case "height":
+				obj = h.Faces[dex].Height
+			default:
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+		}
+	} else if path[2] == "frame" {
+		if h.frames[h.currentFrame] == nil {
+			http.Error(w, "no frames", http.StatusBadRequest)
 			return
 		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		if err := jpeg.Encode(w, h.frames[h.currentFrame], &jpeg.Options{Quality: h.Quality}); err != nil {
+			log.Printf("jpeg encoding error: %v", err)
+		}
+		return
 	}
 
 	if image != nil {
@@ -399,6 +419,7 @@ func main() {
 			break
 		}
 
+		facesHandler.Frame(rgb)
 		detections := det.InferRGB(rgb)
 
 		// log.Printf("found: %d", len(detections))
