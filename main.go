@@ -343,6 +343,18 @@ func (m MotionProcessor) ProcessMotion(r io.Reader) {
 	log.Print("finishing motion processor")
 }
 
+func centerCropSquare(r image.Rectangle) image.Rectangle {
+	if r.Dx() > r.Dy() {
+		extra0 := (r.Dx() - r.Dy()) / 2
+		extra1 := r.Dx() - r.Dy() - extra0
+		return image.Rect(r.Min.X+extra0, r.Min.Y, r.Max.X-extra1, r.Max.Y)
+	} else {
+		extra0 := (r.Dy() - r.Dx()) / 2
+		extra1 := r.Dy() - r.Dx() - extra0
+		return image.Rect(r.Min.X, r.Min.Y+extra0, r.Max.X, r.Max.Y-extra1)
+	}
+}
+
 func main() {
 	flag.Parse()
 
@@ -438,6 +450,8 @@ func main() {
 				// out of bounds
 				continue
 			}
+
+			r = centerCropSquare(r)
 
 			face := rgb.SubImage(r)
 
