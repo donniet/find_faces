@@ -295,8 +295,9 @@ func notify(name string, face image.Image) {
 	imageEncoded := base64.StdEncoding.EncodeToString(b.Bytes())
 
 	msg := map[string]interface{}{
-		"name":  name,
-		"image": "image/jpeg;base64," + imageEncoded,
+		"name":     name,
+		"dateTime": time.Now(),
+		"image":    "image/jpeg;base64," + imageEncoded,
 	}
 
 	if bb, err := json.Marshal(msg); err != nil {
