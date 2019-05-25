@@ -140,7 +140,7 @@ func (h *FacesHandler) Add(face image.Image, embedding []float32) {
 	if h.cur >= h.CacheSize {
 		h.cur = 0
 	}
-	if h.cur > len(h.Faces) {
+	if h.cur >= len(h.Faces) {
 		h.Faces = append(h.Faces, f)
 		h.cur = len(h.Faces)
 	} else {
