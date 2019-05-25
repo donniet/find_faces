@@ -49,7 +49,7 @@ var (
 	addr                          = ":9081"
 	faceCacheSize                 = 100
 
-	facesPathRegexp = regexp.MustCompile("(/((\\d+)|frame)(/(image|mimeType|time|width|height))?)?")
+	facesPathRegexp = regexp.MustCompile("(/((\\d+)|frame|face)(/(image|mimeType|time|width|height))?)?")
 )
 
 type People []Person
@@ -106,14 +106,18 @@ type FacesHandler struct {
 	Faces        []Face
 	CacheSize    int
 	Quality      int
+	Classifier   *detector.Classifier
+	cur          int
 	locker       sync.Locker
 }
 
-func NewFacesHandler(maxSize int) *FacesHandler {
+func NewFacesHandler(maxSize int, classer *detector.Classifier) *FacesHandler {
 	return &FacesHandler{
-		CacheSize: maxSize,
-		locker:    new(sync.Mutex),
-		Quality:   75,
+		CacheSize:  maxSize,
+		locker:     new(sync.Mutex),
+		Quality:    75,
+		Classifier: classer,
+		cur:        0,
 	}
 }
 
@@ -125,17 +129,23 @@ func (h *FacesHandler) Add(face image.Image, embedding []float32) {
 	if err := jpeg.Encode(b, face, &jpeg.Options{Quality: h.Quality}); err != nil {
 		log.Printf("error encoding jpeg: %v", err)
 	}
-	h.Faces = append(h.Faces, Face{
+	f := Face{
 		Image:     b.Bytes(),
 		MimeType:  "image/jpeg",
 		Time:      time.Now(),
 		Width:     face.Bounds().Dx(),
 		Height:    face.Bounds().Dy(),
 		Embedding: embedding,
-	})
-
-	if len(h.Faces) > h.CacheSize {
-		h.Faces = h.Faces[len(h.Faces)-h.CacheSize:]
+	}
+	if h.cur >= h.CacheSize {
+		h.cur = 0
+	}
+	if h.cur > len(h.Faces) {
+		h.Faces = append(h.Faces, f)
+		h.cur = len(h.Faces)
+	} else {
+		h.Faces[h.cur] = f
+		h.cur++
 	}
 }
 
@@ -152,12 +162,36 @@ func (h *FacesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("path: %s, %#v", r.URL.Path, path)
 
-	h.locker.Lock()
-	defer h.locker.Unlock()
-
 	var obj interface{} = h.Faces
 	mimeType := ""
 	var image []byte
+
+	if r.Method == http.MethodPost {
+		if path[2] == "face" {
+			// download image
+			img, err := jpeg.Decode(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			rgb := detector.FromImage(img)
+			res := h.Classifier.InferRGB24(rgb)
+			h.Add(img, res.Embedding)
+
+			b, err := json.Marshal(res.Embedding)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Write(b)
+			return
+		}
+		http.Error(w, "invalid method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	h.locker.Lock()
+	defer h.locker.Unlock()
 
 	if path[3] != "" {
 		if dex, err := strconv.ParseInt(path[3], 10, 32); err != nil {
@@ -358,18 +392,6 @@ func centerCropSquare(r image.Rectangle) image.Rectangle {
 func main() {
 	flag.Parse()
 
-	facesHandler := NewFacesHandler(faceCacheSize)
-	server := &http.Server{
-		Addr:    addr,
-		Handler: facesHandler,
-	}
-	go func() {
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			log.Fatal(err)
-		}
-	}()
-	defer server.Close()
-
 	people := People{}
 	mot := MotionProcessor{
 		MBX:             mbx,
@@ -393,6 +415,18 @@ func main() {
 
 	classer := detector.NewClassifier(classifierDescription, classifierWeights, deviceName)
 	defer classer.Close()
+
+	facesHandler := NewFacesHandler(faceCacheSize, classer)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: facesHandler,
+	}
+	go func() {
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+	defer server.Close()
 
 	go func() {
 		log.Printf("opening motion file: '%s'", motionFile)
