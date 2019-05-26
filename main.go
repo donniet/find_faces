@@ -49,7 +49,7 @@ var (
 	addr                          = ":9081"
 	faceCacheSize                 = 100
 
-	facesPathRegexp = regexp.MustCompile("(/((\\d+)|frame|face)(/(image|mimeType|time|width|height))?)?")
+	facesPathRegexp = regexp.MustCompile("(/((\\d+)|frame|face|peaks)(/(image|mimeType|time|width|height))?)?")
 )
 
 type People []Person
@@ -108,6 +108,7 @@ type FacesHandler struct {
 	Quality      int
 	Classifier   *detector.Classifier
 	cur          int
+	multiModal   detector.MultiModal
 	locker       sync.Locker
 }
 
@@ -118,7 +119,12 @@ func NewFacesHandler(maxSize int, classer *detector.Classifier) *FacesHandler {
 		Quality:    75,
 		Classifier: classer,
 		cur:        0,
+		multiModal: detector.NewMultiModal(classer.EmbeddingSize(), 1024),
 	}
+}
+
+func (h *FacesHandler) Close() {
+	h.multiModal.Close()
 }
 
 func (h *FacesHandler) Add(face image.Image, embedding []float32) {
@@ -137,6 +143,9 @@ func (h *FacesHandler) Add(face image.Image, embedding []float32) {
 		Height:    face.Bounds().Dy(),
 		Embedding: embedding,
 	}
+
+	h.multiModal.Insert(embedding)
+
 	if h.cur >= h.CacheSize {
 		h.cur = 0
 	}
@@ -232,6 +241,15 @@ func (h *FacesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Printf("jpeg encoding error: %v", err)
 		}
 		return
+	} else if path[2] == "peaks" {
+		if b, err := json.Marshal(h.multiModal.Peaks()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		} else {
+			w.Header().Add("Content-Type", "application/json")
+			w.Write(b)
+			return
+		}
 	}
 
 	if image != nil {
@@ -418,6 +436,8 @@ func main() {
 	defer classer.Close()
 
 	facesHandler := NewFacesHandler(faceCacheSize, classer)
+	defer facesHandler.Close()
+
 	server := &http.Server{
 		Addr:    addr,
 		Handler: facesHandler,
@@ -491,7 +511,6 @@ func main() {
 			face := rgb.SubImage(r)
 
 			classification := classer.InferRGB24(face.(*detector.RGB24))
-			facesHandler.Add(face, classification.Embedding)
 
 			// go mot.Notify(0)
 
@@ -501,6 +520,7 @@ func main() {
 					classification.Embedding[i] = x / n
 				}
 			}
+			facesHandler.Add(face, classification.Embedding)
 
 			if outputFaces {
 				if f, err := os.OpenFile(fmt.Sprintf("faces/face%05d.jpg", j), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0660); err != nil {
