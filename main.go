@@ -144,7 +144,7 @@ func (h *FacesHandler) Add(face image.Image, embedding []float32) {
 		Embedding: embedding,
 	}
 
-	h.multiModal.Insert(embedding)
+	// h.multiModal.Insert(embedding)
 
 	if h.cur >= h.CacheSize {
 		h.cur = 0
