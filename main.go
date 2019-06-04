@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -50,6 +51,8 @@ var (
 	faceCacheSize                 = 100
 
 	facesPathRegexp = regexp.MustCompile("(/((\\d+)|frame|face|peaks)(/(image|mimeType|time|width|height))?)?")
+
+	netPath = regexp.MustCompile("^(udp|tcp|unix)://(.*)$")
 )
 
 type People []Person
@@ -451,28 +454,53 @@ func main() {
 
 	go func() {
 		log.Printf("opening motion file: '%s'", motionFile)
-		var m *os.File
-		if motionFile != "" {
-			var err error
-			if m, err = os.OpenFile(motionFile, os.O_RDONLY, 0600); err != nil {
-				log.Fatal(err)
-			} else {
-				defer m.Close()
-				mot.ProcessMotion(m)
-			}
+		var m io.ReadCloser
+		var err error
+
+		if motionFile == "" {
+			return
 		}
+
+		if netMatches := netPath.FindStringSubmatch(motionFile); len(netMatches) > 0 {
+			// if c, err = net.ListenPacket(netMatches[1], netMatches[2]); err != nil {
+			// 	log.Printf("error opening motion: %v", err)
+			// 	return
+			// }
+			log.Fatal("not implemented")
+		} else if m, err = os.OpenFile(motionFile, os.O_RDONLY, 0600); err != nil {
+			log.Printf("error opening motion file: %v", err)
+			return
+		}
+
+		defer m.Close()
+		mot.ProcessMotion(m)
 	}()
 
-	r := os.Stdin
-	if videoFile != "" {
-		var err error
-		if r, err = os.OpenFile(videoFile, os.O_RDONLY, 0600); err != nil {
-			log.Fatal(err)
-		}
-	}
 	reader := detector.RGB24Reader{
-		Reader: r,
-		Rect:   image.Rect(0, 0, imageWidth, imageHeight),
+		Rect: image.Rect(0, 0, imageWidth, imageHeight),
+	}
+
+	if videoFile != "" {
+		log.Printf("opening video file: '%s'", videoFile)
+
+		if netMatches := netPath.FindStringSubmatch(videoFile); len(netMatches) > 0 {
+			listener, err := net.Listen(netMatches[1], netMatches[2])
+
+			if err != nil {
+				log.Fatal("error opening video: %v", err)
+			}
+			log.Printf("listening on: %v", netMatches[2])
+			defer listener.Close()
+
+			reader.Reader, err = listener.Accept()
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else if r, err := os.OpenFile(videoFile, os.O_RDONLY, 0600); err != nil {
+			log.Fatal(err)
+		} else {
+			reader.Reader = r
+		}
 	}
 
 	j := 0
@@ -489,6 +517,8 @@ func main() {
 			log.Print(err)
 			break
 		}
+
+		// log.Printf("read frame...")
 
 		facesHandler.Frame(rgb)
 		detections := det.InferRGB(rgb)
