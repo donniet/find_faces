@@ -462,11 +462,18 @@ func main() {
 		}
 
 		if netMatches := netPath.FindStringSubmatch(motionFile); len(netMatches) > 0 {
-			// if c, err = net.ListenPacket(netMatches[1], netMatches[2]); err != nil {
-			// 	log.Printf("error opening motion: %v", err)
-			// 	return
-			// }
-			log.Fatal("not implemented")
+			listener, err := net.Listen(netMatches[1], netMatches[2])
+
+			if err != nil {
+				log.Fatal("error opening motion file: %v", err)
+			}
+			log.Printf("listening for motion on: %v", netMatches[2])
+			defer listener.Close()
+
+			m, err = listener.Accept()
+			if err != nil {
+				log.Fatal(err)
+			}
 		} else if m, err = os.OpenFile(motionFile, os.O_RDONLY, 0600); err != nil {
 			log.Printf("error opening motion file: %v", err)
 			return
